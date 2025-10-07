@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FhciChat — Live Group & Private Chat</title>
+  <style>
+    :root{--bg:#0b0f14;--panel:#0f1620;--muted:#98a3ad;--accent:#00e5ff;--me:#1bff9b}
+    [data-theme='light']{--bg:#f6f8fa;--panel:#ffffff;--muted:#5b6b73;--accent:#006b8f;--me:#006b8f}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,-apple-system,'Helvetica Neue',Arial}
+    body{background:linear-gradient(180deg,var(--bg),#03060a);color:#e6eef3}
+
+    /* Layout */
+    .app{display:grid;grid-template-columns:260px 1fr;gap:18px;height:100vh;padding:18px}
+    .left{background:linear-gradient(180deg,var(--panel),#0b1116);border-radius:12px;padding:14px;display:flex;flex-direction:column}
+    .logo{font-weight:800;letter-spacing:1px;margin-bottom:12px}
+    .theme-toggle{margin-top:auto;display:flex;gap:8px;align-items:center}
+
+    .users{flex:1;overflow:auto;margin-top:8px}
+    .user{padding:8px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer}
+    .user:hover{background:rgba(255,255,255,0.02)}
+    .badge{font-size:12px;color:var(--muted)}
+
+    .main{display:flex;flex-direction:column;background:linear-gradient(180deg,#071018,#041018);border-radius:12px;padding:12px}
+    .header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px}
+    .room-title{font-weight:700}
+    .messages{flex:1;overflow:auto;padding:12px 8px;display:flex;flex-direction:column;gap:10px}
+
+    .composer{display:flex;gap:8px;padding:12px;background:linear-gradient(180deg,#021014,#041018);border-radius:10px}
+    .composer input{flex:1;padding:12px;border-radius:8px;border:0;background:transparent;color:inherit;outline:1px solid rgba(255,255,255,0.03)}
+    .btn{background:var(--accent);color:#001;padding:10px 14px;border-radius:8px;border:none;cursor:pointer}
+
+    .bubble{max-width:72%;padding:10px 12px;border-radius:12px;position:relative}
+    .bubble.me{margin-left:auto;background:linear-gradient(90deg,var(--me),#0ff);color:#002}
+    .bubble.other{background:linear-gradient(90deg,#0f2633,#072226);color:#dff}
+    .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
+
+    .actions{display:flex;gap:8px}
+    .small-btn{font-size:12px;padding:6px 8px;border-radius:6px;border:0;cursor:pointer}
+
+    /* Join overlay */
+    .overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(0deg,rgba(2,6,8,0.6),rgba(2,6,8,0.6))}
+    .card{background:var(--panel);padding:26px;border-radius:12px;width:420px;box-shadow:0 6px 30px rgba(0,0,0,0.5)}
+    .field{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+    .field input{padding:12px;border-radius:8px;border:0;background:transparent;color:inherit;outline:1px solid rgba(255,255,255,0.03)}
+
+    /* Private chat drawer */
+    .dm{position:fixed;right:20px;bottom:20px;width:320px;background:var(--panel);border-radius:12px;padding:8px;box-shadow:0 8px 36px rgba(0,0,0,0.6)}
+    .dm .messages{height:260px;overflow:auto}
+
+    /* responsive */
+    @media (max-width:860px){.app{grid-template-columns:1fr}.left{display:none}.dm{right:12px;bottom:12px;width:90%}}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="left">
+      <div class="logo">FhciChat</div>
+      <div class="users" id="usersList"> <!-- populated dynamically --></div>
+      <div class="theme-toggle">
+        <label style="font-size:13px">Dark / Light</label>
+        <button id="toggleTheme" class="small-btn">Toggle</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="header">
+        <div class="room-title">Global Chat — Everyone welcome</div>
+        <div><span id="youLabel" class="badge">Not joined</span></div>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="composer">
+        <input id="messageInput" placeholder="Type message and press Enter..." autocomplete="off" />
+        <button id="sendBtn" class="btn">Send</button>
+      </div>
+    </main>
+
+    <!-- private DM template (created on demand) -->
+  </div>
+
+  <!-- join overlay -->
+  <div class="overlay" id="joinOverlay">
+    <div class="card">
+      <h2>Join FhciChat</h2>
+      <div class="field">
+        <label>Your display name</label>
+        <input id="nameInput" placeholder="Type a name (no account)" maxlength="24" />
+      </div>
+      <div class="field">
+        <label>Moderator name (for you)</label>
+        <input id="adminName" value="Admin" />
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button id="joinBtn" class="btn">Join Chat</button>
+      </div>
+      <p style="font-size:12px;margin-top:12px;color:var(--muted)">Note: this demo uses a Socket.io server. Messages are temporary and for public use — anyone with the link can join.</p>
+    </div>
+  </div>
+
+  <template id="dmTemplate">
+    <div class="dm" data-target="">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 6px">
+        <strong class="dmTitle"></strong>
+        <div>
+          <button class="small-btn closeDM">Close</button>
+        </div>
+      </div>
+      <div class="messages"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input class="dmInput" placeholder="Message privately..." />
+        <button class="small-btn sendDM">Send</button>
+      </div>
+    </div>
+  </template>
+
+  <!-- socket.io client (server must serve /socket.io/socket.io.js) -->
+  <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+  <script>
+    // Frontend logic for FhciChat
+    const socket = io(); // assumes backend at same origin; update if different
+
+    let me = null;
+    const adminNameInput = document.getElementById('adminName');
+    const joinOverlay = document.getElementById('joinOverlay');
+    const nameInput = document.getElementById('nameInput');
+    const joinBtn = document.getElementById('joinBtn');
+    const messagesEl = document.getElementById('messages');
+    const usersList = document.getElementById('usersList');
+    const youLabel = document.getElementById('youLabel');
+    const sendBtn = document.getElementById('sendBtn');
+    const messageInput = document.getElementById('messageInput');
+    const toggleTheme = document.getElementById('toggleTheme');
+
+    // theme
+    const root = document.documentElement;
+    let theme = localStorage.getItem('fhc-theme') || 'dark';
+    if (theme === 'light') root.setAttribute('data-theme','light');
+
+    toggleTheme.onclick = ()=>{
+      theme = theme === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', theme === 'dark' ? '':'light');
+      localStorage.setItem('fhc-theme', theme);
+    }
+
+    // helpers
+    function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt)e.textContent=txt;return e}
+
+    function addMessage(msg){
+      // msg = {id, from, text, ts, system, private, target}
+      const wrap = el('div','msgWrap');
+      const meta = el('div','meta', (new Date(msg.ts||Date.now())).toLocaleTimeString() + (msg.system? ' • system':''));
+      const bubble = el('div','bubble ' + (msg.from===me ? 'me' : 'other'));
+      if(msg.system) bubble.classList.add('other');
+      if(msg.private) bubble.style.opacity = 0.9;
+      bubble.innerHTML = `<div style="font-size:12px;font-weight:700;margin-bottom:6px">${msg.from}${msg.from===getAdminName()? ' — MOD':''}${msg.private? ' (private)':''}</div><div>${escapeHtml(msg.text)}</div>`;
+
+      // admin controls on messages
+      if(getAdminName() === me){
+        const actions = el('div','actions');
+        const del = el('button','small-btn','Delete');
+        del.onclick = ()=> socket.emit('delete_message', {id: msg.id});
+        const ban = el('button','small-btn','Ban');
+        ban.onclick = ()=> socket.emit('ban_user', {name: msg.from});
+        actions.appendChild(del); actions.appendChild(ban);
+        bubble.appendChild(actions);
+      }
+
+      wrap.appendChild(meta); wrap.appendChild(bubble);
+      messagesEl.appendChild(wrap);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function updateUsers(list){
+      usersList.innerHTML='';
+      list.forEach(u=>{
+        const elUser = el('div','user');
+        elUser.innerHTML = `<div><strong>${escapeHtml(u.name)}</strong><div style="font-size:12px;color:var(--muted)">${u.id===socket.id? 'you': ''}</div></div>`;
+        elUser.onclick = ()=> openDM(u.name);
+        usersList.appendChild(elUser);
+      });
+    }
+
+    function openDM(targetName){
+      if(targetName===me) return alert('You are already yourself 😄');
+      // create drawer if not exist
+      let drawer = document.querySelector(`.dm[data-target='${targetName}']`);
+      if(drawer) return;
+      const tpl = document.getElementById('dmTemplate');
+      drawer = tpl.content.firstElementChild.cloneNode(true);
+      drawer.dataset.target = targetName;
+      drawer.querySelector('.dmTitle').textContent = 'DM — ' + targetName;
+      drawer.querySelector('.closeDM').onclick = ()=> drawer.remove();
+      drawer.querySelector('.sendDM').onclick = ()=>{
+        const input = drawer.querySelector('.dmInput');
+        const txt = input.value.trim(); if(!txt) return;
+        socket.emit('private_message',{to:targetName,text:txt});
+        appendDM(drawer, {from: me, text: txt, ts: Date.now()});
+        input.value='';
+      };
+      document.body.appendChild(drawer);
+    }
+
+    function appendDM(drawer, msg){
+      const box = drawer.querySelector('.messages');
+      const b = el('div','bubble me');
+      b.innerHTML = `<div style="font-size:12px;font-weight:700;margin-bottom:6px">${msg.from}</div><div>${escapeHtml(msg.text)}</div>`;
+      box.appendChild(b); box.scrollTop = box.scrollHeight;
+    }
+
+    function getAdminName(){ return (adminNameInput.value||'Admin').trim() }
+
+    function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+    // join flow
+    joinBtn.onclick = ()=>{
+      const name = (nameInput.value||'').trim();
+      if(!name) return alert('Type a name to join');
+      me = name;
+      socket.emit('join', {name});
+      youLabel.textContent = 'You: ' + me + (me===getAdminName()? ' • Moderator':'' );
+      joinOverlay.style.display='none';
+    }
+
+    // send message
+    sendBtn.onclick = sendMessage;
+    messageInput.onkeydown = e=>{ if(e.key==='Enter') sendMessage(); }
+    function sendMessage(){
+      const txt = messageInput.value.trim(); if(!txt) return; 
+      const id = Math.random().toString(36).slice(2,9);
+      const payload = {id, from: me, text: txt, ts: Date.now()};
+      socket.emit('message', payload);
+      messageInput.value='';
+    }
+
+    // socket events
+    socket.on('connect', ()=> console.log('connected'));
+    socket.on('users', list=> updateUsers(list));
+    socket.on('message', msg => addMessage(msg));
+    socket.on('message_deleted', id => {
+      // remove message with id if present
+      const nodes = messagesEl.querySelectorAll('.msgWrap');
+      nodes.forEach(n=>{ if(n.querySelector('.bubble') && n.querySelector('.bubble').dataset?.id==id) n.remove(); });
+      // simple approach: reload list from server would be better
+    });
+    socket.on('banned', name => { if(name===me){ alert('You were banned by moderator'); location.reload(); } });
+    socket.on('private_message', data => {
+      // open DM and show
+      openDM(data.from);
+      const drawer = document.querySelector(`.dm[data-target='${data.from}']`);
+      if(drawer) appendDM(drawer, data);
+    });
+
+    // system messages (if server sends history or notices)
+    socket.on('system', m=> addMessage({system:true, from:'system', text:m, ts:Date.now()}));
+
+    // small safety: prevent sending if not joined
+    socket.onAny((ev,d)=>{
+      if(!me && ev!=='connect' && ev!=='users'){
+        // ignore
+      }
+    });
+
+    // keyboard shortcuts
+    window.addEventListener('keydown', e=>{ if(e.key==='/' && document.activeElement!==messageInput){ messageInput.focus(); e.preventDefault(); }});
+  </script>
+</body>
+</html>
